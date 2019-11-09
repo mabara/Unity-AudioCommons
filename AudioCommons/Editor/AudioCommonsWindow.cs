@@ -26,6 +26,7 @@ public class AudioCommonsMemberContent
     public string title;
     public string description;
     public string license;
+    public string author;
 }
 
 [Serializable]
@@ -58,7 +59,8 @@ public class AudioCommonsWindow : EditorWindow
     public static void ShowWindow()
     {
         //Show existing window instance. If one doesn't exist, make one.
-        GetWindow(typeof(AudioCommonsWindow));
+        var window = GetWindow(typeof(AudioCommonsWindow));
+        window.titleContent = new GUIContent("Audio Commons Importer");
     }
 
     private string m_SearchString;
@@ -66,18 +68,25 @@ public class AudioCommonsWindow : EditorWindow
 
     [SerializeField]
     private Vector2 m_ResultsScroll;
+    
+    [SerializeField]
+    private List<int> m_DownloadIndicies = new List<int>();
 
     private int m_CurrentPage = 1;
-    
+
+    private void Reset()
+    {
+        m_CurrentPage = 1;
+        m_ResultsScroll = Vector2.zero;
+        m_DownloadIndicies.Clear();
+    }
 
     private void OnGUI()
     {
         GUILayout.BeginHorizontal(GUI.skin.FindStyle("Toolbar"));
-        EditorGUI.BeginChangeCheck();
+
         m_SearchString = GUILayout.TextField(m_SearchString, GUI.skin.FindStyle("ToolbarSeachTextField"));
-        if (EditorGUI.EndChangeCheck())
-            m_CurrentPage = 1;
-        
+
         if (GUILayout.Button("", GUI.skin.FindStyle("ToolbarSeachCancelButton")))
         {
             // Remove focus if cleared
@@ -88,59 +97,81 @@ public class AudioCommonsWindow : EditorWindow
 
         if (GUILayout.Button("Search"))
         {
-            m_AudioCommonsResponse = QueryAudioCommonsApi(10, m_CurrentPage);
+            Reset();
+            QueryAudioCommonsApi(10, m_CurrentPage);
         }
 
         if (m_AudioCommonsResponse != null)
         {
-            m_ResultsScroll = EditorGUILayout.BeginScrollView(m_ResultsScroll);
             var results = m_AudioCommonsResponse.results;
-            EditorGUILayout.LabelField($"Number of Audio Clips found: {results.Sum(result => result.members.Count)}");
+            m_ResultsScroll = EditorGUILayout.BeginScrollView(m_ResultsScroll);
+
+            var downloadIndex = 0;
             foreach (var result in results)
             {
                 foreach (var member in result.members)
                 {
-                    GUILayout.BeginHorizontal(EditorStyles.helpBox);
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
                     {
-                        GUILayout.BeginVertical();
-                        {
-                            EditorGUILayout.LabelField($"Title: {member.content.title}");
+                        EditorGUILayout.LabelField($"Title: {member.content.title}");
+                        
+                        if(!string.IsNullOrEmpty(member.content.description))
                             EditorGUILayout.LabelField($"Desc: {member.content.description}");
-                        }
-                        GUILayout.EndVertical();
-
-                        if (GUILayout.Button("Import"))
+                        
+                        if(!string.IsNullOrEmpty(member.content.author))
+                            EditorGUILayout.LabelField($"Author: {member.content.author}");
+                        
+                        EditorGUILayout.LabelField($"License: {member.content.license}");
+                        
+                        GUILayout.BeginHorizontal();
                         {
-                            DownloadAndImportAudio(member.content.title, member.content.availableAs[0].hasAudioEncodingFormat, member.content.availableAs[0].locator);
+                            var audioFiles = new List<string>(member.content.availableAs.Count);
+                            foreach (var content in member.content.availableAs)
+                                audioFiles.Add($"Ext: {content.hasAudioEncodingFormat} - {content.bitRate}");
+
+                            m_DownloadIndicies[downloadIndex] = EditorGUILayout.Popup(m_DownloadIndicies[downloadIndex], audioFiles.ToArray());
+
+                            if (GUILayout.Button("Import"))
+                            {
+                                var contentToImport = member.content.availableAs[m_DownloadIndicies[downloadIndex]];
+                                DownloadAndImportAudio(member.content.title,
+                                    contentToImport.hasAudioEncodingFormat,
+                                    contentToImport.locator);
+                            }
                         }
+                        GUILayout.EndHorizontal();
+                        
+                        ++downloadIndex;
                     }
-                    GUILayout.EndHorizontal();
+                    GUILayout.EndVertical();
                 }
             }
+            
             EditorGUILayout.EndScrollView();
+            EditorGUILayout.LabelField($"Number of Audio Clips found: {results.Sum(result => result.members.Count)}");
 
             GUILayout.BeginHorizontal(EditorStyles.helpBox);
             EditorGUILayout.LabelField($"Page: {m_CurrentPage}");
 
+            bool disableBackButton = m_CurrentPage == 1;
+
+            if (disableBackButton)
+                GUI.enabled = false;
+
             if (GUILayout.Button("<"))
-            {
-                if (m_CurrentPage > 1)
-                {
-                    m_CurrentPage--;
-                    m_AudioCommonsResponse = QueryAudioCommonsApi(10, m_CurrentPage);
-                }
-            }
+                QueryAudioCommonsApi(10, --m_CurrentPage);
+            
+            if(disableBackButton)
+                GUI.enabled = true;
 
             if (GUILayout.Button(">"))
-            {
-                m_CurrentPage++;
-                m_AudioCommonsResponse = QueryAudioCommonsApi(10, m_CurrentPage);
-            }
+                QueryAudioCommonsApi(10, ++m_CurrentPage);
+            
             GUILayout.EndHorizontal();
         }
     }
 
-    private AudioCommonsResponse QueryAudioCommonsApi(int limit, int page)
+    private void QueryAudioCommonsApi(int limit, int page)
     {
         HttpClient client = new HttpClient();
 
@@ -154,7 +185,8 @@ public class AudioCommonsWindow : EditorWindow
         jsonRequest.Wait();
         var jsonResult = jsonRequest.Result;
 
-        return JsonUtility.FromJson<AudioCommonsResponse>(jsonResult);
+        m_AudioCommonsResponse = JsonUtility.FromJson<AudioCommonsResponse>(jsonResult);
+        m_DownloadIndicies = Enumerable.Repeat(0, m_AudioCommonsResponse.results.Sum(result => result.members.Count)).ToList();
     }
 
     private void DownloadAndImportAudio(string title, string encoding, string url)
@@ -182,5 +214,6 @@ public class AudioCommonsWindow : EditorWindow
         }
         
         AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+        EditorGUIUtility.PingObject(AssetDatabase.LoadMainAssetAtPath(assetPath));
     }
 }
