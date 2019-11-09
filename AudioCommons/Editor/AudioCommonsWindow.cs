@@ -66,9 +66,12 @@ public class AudioCommonsWindow : EditorWindow
     private string m_SearchString;
     private AudioCommonsResponse m_AudioCommonsResponse;
 
+    private int m_ContentProviderIndex = 0;
+    private string m_ContentProviderString;
+
     [SerializeField]
     private Vector2 m_ResultsScroll;
-    
+
     [SerializeField]
     private List<int> m_DownloadIndicies = new List<int>();
 
@@ -95,6 +98,27 @@ public class AudioCommonsWindow : EditorWindow
         }
         GUILayout.EndHorizontal();
 
+        GUILayout.BeginHorizontal();
+        {
+          var providerArray = new List<string>(4);
+          providerArray.Add("Freesound");
+          providerArray.Add("Jamendo");
+          providerArray.Add("Europeana");
+          providerArray.Add("All");
+
+          var providerChoice = new List<string>(4);
+          providerChoice.Add("freesound");
+          providerChoice.Add("jamendo");
+          providerChoice.Add("europeana");
+          providerChoice.Add("freesound%2Cjamendo%2Ceuropeana");
+
+          m_ContentProviderIndex = EditorGUILayout.Popup(m_ContentProviderIndex, providerArray.ToArray());
+
+          m_ContentProviderString = providerChoice[m_ContentProviderIndex];
+        }
+        GUILayout.EndHorizontal();
+
+
         if (GUILayout.Button("Search"))
         {
             Reset();
@@ -114,39 +138,48 @@ public class AudioCommonsWindow : EditorWindow
                     GUILayout.BeginVertical(EditorStyles.helpBox);
                     {
                         EditorGUILayout.LabelField($"Title: {member.content.title}");
-                        
+
                         if(!string.IsNullOrEmpty(member.content.description))
                             EditorGUILayout.LabelField($"Desc: {member.content.description}");
-                        
+
                         if(!string.IsNullOrEmpty(member.content.author))
                             EditorGUILayout.LabelField($"Author: {member.content.author}");
-                        
+
                         EditorGUILayout.LabelField($"License: {member.content.license}");
-                        
+
                         GUILayout.BeginHorizontal();
                         {
                             var audioFiles = new List<string>(member.content.availableAs.Count);
                             foreach (var content in member.content.availableAs)
-                                audioFiles.Add($"Ext: {content.hasAudioEncodingFormat} - {content.bitRate}");
+                                if (content.hasAudioEncodingFormat != null)
+                                  audioFiles.Add($"Ext: {content.hasAudioEncodingFormat} - {content.bitRate}");
+                                else
+                                  audioFiles.Add("Ext: mp3 - 0");
 
                             m_DownloadIndicies[downloadIndex] = EditorGUILayout.Popup(m_DownloadIndicies[downloadIndex], audioFiles.ToArray());
 
                             if (GUILayout.Button("Import"))
                             {
                                 var contentToImport = member.content.availableAs[m_DownloadIndicies[downloadIndex]];
-                                DownloadAndImportAudio(member.content.title,
-                                    contentToImport.hasAudioEncodingFormat,
+                                if (contentToImport.hasAudioEncodingFormat != null)
+                                  DownloadAndImportAudio(member.content.title,
+                                      contentToImport.hasAudioEncodingFormat,
+                                      contentToImport.locator);
+                                else
+                                  DownloadAndImportAudio(member.content.title,
+                                    "mp3",
                                     contentToImport.locator);
+
                             }
                         }
                         GUILayout.EndHorizontal();
-                        
+
                         ++downloadIndex;
                     }
                     GUILayout.EndVertical();
                 }
             }
-            
+
             EditorGUILayout.EndScrollView();
             EditorGUILayout.LabelField($"Number of Audio Clips found: {results.Sum(result => result.members.Count)}");
 
@@ -160,13 +193,13 @@ public class AudioCommonsWindow : EditorWindow
 
             if (GUILayout.Button("<"))
                 QueryAudioCommonsApi(10, --m_CurrentPage);
-            
+
             if(disableBackButton)
                 GUI.enabled = true;
 
             if (GUILayout.Button(">"))
                 QueryAudioCommonsApi(10, ++m_CurrentPage);
-            
+
             GUILayout.EndHorizontal();
         }
     }
@@ -176,7 +209,8 @@ public class AudioCommonsWindow : EditorWindow
         HttpClient client = new HttpClient();
 
         var request = client.GetAsync(
-            $"https://m2.audiocommons.org/api/audioclips/search?pattern={m_SearchString}&limit={limit}&page={page}&source=freesound%2Cjamendo%2Ceuropeana");
+            $"https://m2.audiocommons.org/api/audioclips/search?pattern={m_SearchString}&limit={limit}&page={page}&source={m_ContentProviderString}");
+            //$"https://m2.audiocommons.org/api/audioclips/search?pattern={m_SearchString}&limit={limit}&page={page}&source=freesound%2Cjamendo%2Ceuropeana");
         request.Wait();
         var response = request.Result;
         response.EnsureSuccessStatusCode();
@@ -193,7 +227,7 @@ public class AudioCommonsWindow : EditorWindow
     {
         Regex rgx = new Regex("[^a-zA-Z0-9 -]");
         encoding = rgx.Replace(encoding, "");
-        
+
         HttpClient client = new HttpClient();
 
         var request = client.GetAsync(url);
@@ -212,7 +246,7 @@ public class AudioCommonsWindow : EditorWindow
         {
             response.Content.CopyToAsync(fs).Wait();
         }
-        
+
         AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
         EditorGUIUtility.PingObject(AssetDatabase.LoadMainAssetAtPath(assetPath));
     }
