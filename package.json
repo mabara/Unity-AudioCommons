@@ -1,0 +1,12 @@
+{
+    "name": "com.harryrose.audiocommons",
+    "displayName": "Audio Commons Importer",
+    "version": "1.0.0",
+    "unity": "2018.4",
+    "description": "Editor Window to allow quick audio importing via the Audio Commons API",
+    "type" : "tool",
+    "author": {
+        "name": "Harry Rose",
+        "url": "https://www.twitter.com/peanutbuffer"
+    }
+}
